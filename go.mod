@@ -3,6 +3,7 @@ module uriage
 go 1.21.3
 
 require (
+	github.com/google/subcommands v1.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/mattn/go-sqlite3 v1.14.17 // indirect

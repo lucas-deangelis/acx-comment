@@ -1,17 +1,18 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime/pprof"
-	"sort"
 	"time"
 
+	"github.com/google/subcommands"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -49,6 +50,29 @@ type article struct {
 	ReactionCount           int64          `json:"reaction_count"`
 	CommentCount            int64          `json:"comment_count"`
 	ChildCommentCount       int64          `json:"child_comment_count"`
+}
+
+type articlesCmd struct{}
+
+func (*articlesCmd) Name() string {
+	return "articles"
+}
+
+func (*articlesCmd) Synopsis() string {
+	return "Get all the articles from ACX."
+}
+
+func (*articlesCmd) Usage() string {
+	return `articles
+	Get all the articles from ACX.
+`
+}
+
+func (p *articlesCmd) SetFlags(f *flag.FlagSet) {}
+
+func (a *articlesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+	getArticles()
+	return subcommands.ExitSuccess
 }
 
 func main() {
@@ -107,85 +131,93 @@ func main() {
 	// 	time.Sleep(1 * time.Second)
 	// }
 
-	a, err := os.Create("cpu.prof")
-	if err != nil {
-		panic(err)
-	}
-	if err := pprof.StartCPUProfile(a); err != nil {
-		panic(err)
-	}
-	defer pprof.StopCPUProfile()
+	// a, err := os.Create("cpu.prof")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// if err := pprof.StartCPUProfile(a); err != nil {
+	// 	panic(err)
+	// }
+	// defer pprof.StopCPUProfile()
 
-	db, err := sql.Open("sqlite3", "./comments.db")
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
+	// db, err := sql.Open("sqlite3", "./comments.db")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer db.Close()
 
-	schema := `
-    CREATE TABLE IF NOT EXISTS comments (
-        ID INTEGER PRIMARY KEY,
-        PostID INTEGER,
-        UserID INTEGER,
-        Date TEXT,
-        Body TEXT,
-        Name TEXT,
-        AncestorPath TEXT,
-        ChildrenCount INTEGER
-    );`
+	// schema := `
+	// CREATE TABLE IF NOT EXISTS comments (
+	//     ID INTEGER PRIMARY KEY,
+	//     PostID INTEGER,
+	//     UserID INTEGER,
+	//     Date TEXT,
+	//     Body TEXT,
+	//     Name TEXT,
+	//     AncestorPath TEXT,
+	//     ChildrenCount INTEGER
+	// );`
 
-	_, err = db.Exec(schema)
-	if err != nil {
-		panic(err)
-	}
+	// _, err = db.Exec(schema)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	stmt, err := db.Prepare("INSERT INTO comments (ID, PostID, UserID, Date, Body, Name, AncestorPath, ChildrenCount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-	if err != nil {
-		panic(err)
-	}
+	// stmt, err := db.Prepare("INSERT INTO comments (ID, PostID, UserID, Date, Body, Name, AncestorPath, ChildrenCount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	dir := "comments"
+	// dir := "comments"
 
-	f, err := os.Open(dir)
-	if err != nil {
-		fmt.Println("Directory open error:", err)
-		return
-	}
-	defer f.Close()
+	// f, err := os.Open(dir)
+	// if err != nil {
+	// 	fmt.Println("Directory open error:", err)
+	// 	return
+	// }
+	// defer f.Close()
 
-	files, err := f.Readdir(-1) // -1 to read all files
-	if err != nil {
-		fmt.Println("Readdir error:", err)
-		return
-	}
+	// files, err := f.Readdir(-1) // -1 to read all files
+	// if err != nil {
+	// 	fmt.Println("Readdir error:", err)
+	// 	return
+	// }
 
-	sort.SliceStable(files, func(i, j int) bool {
-		return files[i].Name() < files[j].Name()
-	})
+	// sort.SliceStable(files, func(i, j int) bool {
+	// 	return files[i].Name() < files[j].Name()
+	// })
 
-	for _, file := range files {
-		start := time.Now()
+	// for _, file := range files {
+	// 	start := time.Now()
 
-		tx, err := db.Begin()
-		if err != nil {
-			panic(err)
-		}
-		st := tx.Stmt(stmt)
+	// 	tx, err := db.Begin()
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	st := tx.Stmt(stmt)
 
-		path := filepath.Join(dir, file.Name())
-		fmt.Printf("Processing file: %s\n", path)
-		com := flattenCommentJSON(path)
+	// 	path := filepath.Join(dir, file.Name())
+	// 	fmt.Printf("Processing file: %s\n", path)
+	// 	com := flattenCommentJSON(path)
 
-		for _, c := range com {
-			_, err := st.Exec(c.ID, c.PostID, c.UserID, c.Date, c.Body, c.Name, c.AncestorPath, c.ChildrenCount)
-			if err != nil {
-				panic(err)
-			}
-		}
+	// 	for _, c := range com {
+	// 		_, err := st.Exec(c.ID, c.PostID, c.UserID, c.Date, c.Body, c.Name, c.AncestorPath, c.ChildrenCount)
+	// 		if err != nil {
+	// 			panic(err)
+	// 		}
+	// 	}
 
-		tx.Commit()
-		fmt.Printf("Time taken: %s\n", time.Since(start))
-	}
+	// 	tx.Commit()
+	// 	fmt.Printf("Time taken: %s\n", time.Since(start))
+	// }
+	subcommands.Register(subcommands.HelpCommand(), "")
+	subcommands.Register(subcommands.FlagsCommand(), "")
+	subcommands.Register(subcommands.CommandsCommand(), "")
+	subcommands.Register(&articlesCmd{}, "")
+
+	flag.Parse()
+	ctx := context.Background()
+	os.Exit(int(subcommands.Execute(ctx)))
 }
 
 func flattenCommentJSON(path string) []comment {
