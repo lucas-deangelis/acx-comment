@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,14 +46,14 @@ type article struct {
 	CanonicalURL            string `json:"canonical_url"`
 	CoverImage              string `json:"cover_image"`
 	Description             string
-	Wordcount               int64
-	Reactions               map[string]int `json:"reactions"`
-	ReactionCount           int64          `json:"reaction_count"`
-	CommentCount            int64          `json:"comment_count"`
-	ChildCommentCount       int64          `json:"child_comment_count"`
+	WordCount               int64
+	CommentCount            int64 `json:"comment_count"`
+	ChildCommentCount       int64 `json:"child_comment_count"`
 }
 
-type articlesCmd struct{}
+type articlesCmd struct {
+	database string
+}
 
 func (*articlesCmd) Name() string {
 	return "articles"
@@ -63,15 +64,21 @@ func (*articlesCmd) Synopsis() string {
 }
 
 func (*articlesCmd) Usage() string {
-	return `articles
-	Get all the articles from ACX.
+	return `articles [-d/-database <database_name>]
+	Get all the articles from ACX, write it in the database.
 `
 }
 
-func (p *articlesCmd) SetFlags(f *flag.FlagSet) {}
+func (a *articlesCmd) SetFlags(f *flag.FlagSet) {
+	date := time.Now().Format("2006-01-02")
+	dbName := "acx-comments_" + date + ".db"
+	usage := "sqlite database name. The default name is acx-comments_YYYY-MM-DD.db"
+	f.StringVar(&a.database, "database", dbName, usage)
+	f.StringVar(&a.database, "d", dbName, usage)
+}
 
 func (a *articlesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-	getArticles()
+	getArticles(a.database)
 	return subcommands.ExitSuccess
 }
 
@@ -349,43 +356,108 @@ func getComments(articleID int64) {
 	}
 }
 
-func getArticles() {
-	if err := os.MkdirAll("articles", 0755); err != nil {
-		fmt.Println("Directory creation error:", err)
-		return
+// noArticles is the JSON returned by the Substack API when there are no articles at that offset.
+const noArticles = "[]"
+
+// getArticles downloads all the article metadata from ACX, 12 by 12, and store it in JSON files in an "articles" folder.
+// The JSON files are named "article_offset_N", with N being the offset used in the query.
+func getArticles(databaseName string) {
+	// First open/create the database and the 'articles' table.
+	db, err := sql.Open("sqlite3", databaseName)
+	if err != nil {
+		log.Fatalf("Failed to open the database: %v", err)
+	}
+	defer db.Close()
+
+	articlesSchema := `
+	CREATE TABLE IF NOT EXISTS articles (
+		ID                      INTEGER PRIMARY KEY,
+		PublicationID           INTEGER NOT NULL,
+		Title                   TEXT NOT NULL,
+		SocialTitle             TEXT NOT NULL,
+		Slug                    TEXT UNIQUE NOT NULL,
+		PostDate                TEXT NOT NULL,
+		Audience                TEXT NOT NULL,
+		WriteCommentPermissions TEXT NOT NULL,
+		CanonicalURL            TEXT NOT NULL,
+		CoverImage              TEXT NOT NULL,
+		Description             TEXT NOT NULL,
+		WordCount               INTEGER NOT NULL,
+		CommentCount            INTEGER NOT NULL,
+		ChildCommentCount       INTEGER NOT NULL,
+		OriginalJSON			TEXT NOT NULL
+	);`
+
+	_, err = db.Exec(articlesSchema)
+	if err != nil {
+		log.Fatalf("Failed to create 'articles' table: %v", err)
 	}
 
+	// Loop on the articles until there are no left, and store them in the database.
 	offset := 0
 	baseURL := `https://www.astralcodexten.com/api/v1/archive?sort=new&search=&offset=%d&limit=12`
 
 	for {
+		// Query the API, get the articles, read the body.
 		url := fmt.Sprintf(baseURL, offset)
 		fmt.Println(url)
 		res, err := http.Get(url)
 		if err != nil {
-			panic(err)
+			log.Fatalf("Failed to get '%s': %v", baseURL, err)
 		}
 		defer res.Body.Close()
 
 		body, err := io.ReadAll(res.Body)
 		if err != nil {
-			panic(err)
+			log.Fatalf("Failed to read the body of '%s': %v", baseURL, err)
 		}
 
-		fmt.Println(string(body))
-
-		if string(body) == "[]" {
+		if string(body) == noArticles {
 			break
 		}
 
-		filePath := fmt.Sprintf("articles/article_offset_%d.json", offset)
-		if err := os.WriteFile(filePath, body, 0644); err != nil {
-			fmt.Println("File write error:", err)
-			return
+		// Read the body as JSON, store it in the database.
+		var articles []article
+		var articlesJSON []interface{}
+
+		err = json.Unmarshal(body, &articles)
+		if err != nil {
+			log.Fatalf("Failed to unmarshal body into struct of '%s': %v", baseURL, err)
+		}
+
+		err = json.Unmarshal(body, &articlesJSON)
+		if err != nil {
+			log.Fatalf("Failed to unmarshal body of '%s': %v", baseURL, err)
+		}
+
+		stmt, err := db.Prepare("INSERT INTO articles (ID, PublicationID, Title, SocialTitle, Slug, PostDate, Audience, WriteCommentPermissions, CanonicalURL, CoverImage, Description, WordCount, CommentCount, ChildCommentCount, OriginalJSON) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		if err != nil {
+			log.Fatalf("Failed to prepare statement: %v", err)
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			log.Fatalf("Failed to begin transaction: %v", err)
+		}
+
+		txStmt := tx.Stmt(stmt)
+
+		for i, article := range articles {
+			firstArticleAsByte, err := json.Marshal(articlesJSON[i])
+			if err != nil {
+				log.Fatalf("Failed to marshal article %d: %v", i, err)
+			}
+			firstArticleAsString := string(firstArticleAsByte)
+
+			txStmt.Exec(article.ID, article.PublicationID, article.Title, article.SocialTitle, article.Slug, article.PostDate, article.Audience, article.WriteCommentPermissions, article.CanonicalURL, article.CoverImage, article.Description, article.WordCount, article.CommentCount, article.ChildCommentCount, firstArticleAsString)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			log.Fatalf("Failed to commit statement: %v", err)
 		}
 
 		offset += 12
-
 		time.Sleep(1 * time.Second)
 	}
 }
