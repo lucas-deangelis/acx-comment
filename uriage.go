@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/google/subcommands"
@@ -82,62 +81,39 @@ func (a *articlesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface
 	return subcommands.ExitSuccess
 }
 
+type commentsCmd struct {
+	database string
+}
+
+func (*commentsCmd) Name() string {
+	return "comments"
+}
+
+func (*commentsCmd) Synopsis() string {
+	return "Get all the comments of the ACX articles in the database."
+}
+
+func (*commentsCmd) Usage() string {
+	return `comments [-d/-database <database_name>]
+	Read the database to get all the articles, get the comments for each articles,
+	insert them in the database.
+`
+}
+
+func (c *commentsCmd) SetFlags(f *flag.FlagSet) {
+	date := time.Now().Format("2006-01-02")
+	dbName := "acx-comments_" + date + ".db"
+	usage := "sqlite database name. The default name is acx-comments_YYYY-MM-DD.db"
+	f.StringVar(&c.database, "database", dbName, usage)
+	f.StringVar(&c.database, "d", dbName, usage)
+}
+
+func (c *commentsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+	getComments(c.database)
+	return subcommands.ExitSuccess
+}
+
 func main() {
-	// f, err := os.ReadFile("comments.json")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// var coj commentsJSON
-	// err = json.Unmarshal(f, &coj)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Printf("%+v", coj)
-
-	// dir := "articles"
-
-	// f, err := os.Open(dir)
-	// if err != nil {
-	// 	fmt.Println("Directory open error:", err)
-	// 	return
-	// }
-	// defer f.Close()
-
-	// files, err := f.Readdir(-1) // -1 to read all files
-	// if err != nil {
-	// 	fmt.Println("Readdir error:", err)
-	// 	return
-	// }
-
-	// var commentFile commentsJSON
-
-	// for _, file := range files {
-	// 	path := filepath.Join(dir, file.Name())
-	// 	fmt.Println(path)
-
-	// 	f, err := os.ReadFile(path)
-	// 	if err != nil {
-	// 		fmt.Println("File read error:", err)
-	// 		return
-	// 	}
-
-	// 	var articles []article
-	// 	err = json.Unmarshal(f, &articles)
-	// 	if err != nil {
-	// 		fmt.Println("JSON unmarshal error:", err)
-	// 		return
-	// 	}
-
-	// 	allArticles = append(allArticles, articles...)
-	// }
-
-	// fmt.Println(len(allArticles))
-
-	// for _, article := range allArticles {
-	// 	getComments(article.ID)
-	// 	time.Sleep(1 * time.Second)
-	// }
-
 	// a, err := os.Create("cpu.prof")
 	// if err != nil {
 	// 	panic(err)
@@ -147,99 +123,16 @@ func main() {
 	// }
 	// defer pprof.StopCPUProfile()
 
-	// db, err := sql.Open("sqlite3", "./comments.db")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer db.Close()
-
-	// schema := `
-	// CREATE TABLE IF NOT EXISTS comments (
-	//     ID INTEGER PRIMARY KEY,
-	//     PostID INTEGER,
-	//     UserID INTEGER,
-	//     Date TEXT,
-	//     Body TEXT,
-	//     Name TEXT,
-	//     AncestorPath TEXT,
-	//     ChildrenCount INTEGER
-	// );`
-
-	// _, err = db.Exec(schema)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// stmt, err := db.Prepare("INSERT INTO comments (ID, PostID, UserID, Date, Body, Name, AncestorPath, ChildrenCount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// dir := "comments"
-
-	// f, err := os.Open(dir)
-	// if err != nil {
-	// 	fmt.Println("Directory open error:", err)
-	// 	return
-	// }
-	// defer f.Close()
-
-	// files, err := f.Readdir(-1) // -1 to read all files
-	// if err != nil {
-	// 	fmt.Println("Readdir error:", err)
-	// 	return
-	// }
-
-	// sort.SliceStable(files, func(i, j int) bool {
-	// 	return files[i].Name() < files[j].Name()
-	// })
-
-	// for _, file := range files {
-	// 	start := time.Now()
-
-	// 	tx, err := db.Begin()
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	st := tx.Stmt(stmt)
-
-	// 	path := filepath.Join(dir, file.Name())
-	// 	fmt.Printf("Processing file: %s\n", path)
-	// 	com := flattenCommentJSON(path)
-
-	// 	for _, c := range com {
-	// 		_, err := st.Exec(c.ID, c.PostID, c.UserID, c.Date, c.Body, c.Name, c.AncestorPath, c.ChildrenCount)
-	// 		if err != nil {
-	// 			panic(err)
-	// 		}
-	// 	}
-
-	// 	tx.Commit()
-	// 	fmt.Printf("Time taken: %s\n", time.Since(start))
-	// }
 	subcommands.Register(subcommands.HelpCommand(), "")
 	subcommands.Register(subcommands.FlagsCommand(), "")
 	subcommands.Register(subcommands.CommandsCommand(), "")
+
 	subcommands.Register(&articlesCmd{}, "")
+	subcommands.Register(&commentsCmd{}, "")
 
 	flag.Parse()
 	ctx := context.Background()
 	os.Exit(int(subcommands.Execute(ctx)))
-}
-
-func flattenCommentJSON(path string) []comment {
-	f, err := os.ReadFile(path)
-	if err != nil {
-		panic(err)
-	}
-
-	var commentFile commentsJSON
-	err = json.Unmarshal(f, &commentFile)
-	if err != nil {
-		panic(err)
-	}
-
-	return flattenComments(commentFile.Comments)
 }
 
 func flattenComments(comments []comment) []comment {
@@ -259,100 +152,105 @@ func flattenComments(comments []comment) []comment {
 }
 
 func insertComments(db *sql.DB, comments []comment) error {
-	stmt, err := db.Prepare("INSERT INTO comments (ID, PostID, UserID, Date, Body, Name, AncestorPath, ChildrenCount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+	stmt, err := db.Prepare("INSERT INTO comments (ID, PostID, UserID, Date, Body, Name, AncestorPath, ChildrenCount, OriginalJSON) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
+	tx, err := db.Begin()
+	if err != nil {
+		log.Fatalf("Failed to begin transaction: %v", err)
+	}
+
+	txStmt := tx.Stmt(stmt)
+
 	for _, c := range comments {
-		_, err := stmt.Exec(c.ID, c.PostID, c.UserID, c.Date, c.Body, c.Name, c.AncestorPath, c.ChildrenCount)
+		originalJSON, err := json.Marshal(c)
 		if err != nil {
 			panic(err)
 		}
-
-		if err := insertComments(db, c.Children); err != nil {
-			panic(err)
+		_, err = txStmt.Exec(c.ID, c.PostID, c.UserID, c.Date, c.Body, c.Name, c.AncestorPath, c.ChildrenCount, originalJSON)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			continue
 		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func getCommentsFromArticles() {
-	if err := os.MkdirAll("articles", 0755); err != nil {
-		fmt.Println("Directory creation error:", err)
-		return
-	}
-
-	if err := os.MkdirAll("comments", 0755); err != nil {
-		fmt.Println("Directory creation error:", err)
-		return
-	}
-
-	dir := "articles"
-
-	f, err := os.Open(dir)
+func getComments(databaseName string) {
+	db, err := sql.Open("sqlite3", databaseName)
 	if err != nil {
-		fmt.Println("Directory open error:", err)
-		return
+		log.Fatalf("Failed to open database %s: %v", databaseName, err)
 	}
-	defer f.Close()
+	defer db.Close()
 
-	files, err := f.Readdir(-1) // -1 to read all files
+	commentsSchema := `
+	CREATE TABLE IF NOT EXISTS comments (
+	    ID INTEGER PRIMARY KEY,
+	    PostID INTEGER,
+	    UserID INTEGER,
+	    Date TEXT,
+	    Body TEXT,
+	    Name TEXT,
+	    AncestorPath TEXT,
+	    ChildrenCount INTEGER,
+		OriginalJSON TEXT NOT NULL
+	);`
+
+	_, err = db.Exec(commentsSchema)
 	if err != nil {
-		fmt.Println("Readdir error:", err)
-		return
+		log.Fatalf("Failed to create 'comments' table: %v", err)
 	}
 
-	var allArticles []article
+	rows, err := db.Query(`SELECT ID FROM articles;`)
+	if err != nil {
+		log.Fatalf("Failed to get the articles IDs: %v", err)
+	}
+	defer rows.Close()
+	var articlesIDs []int64
+	for rows.Next() {
+		var articleID int64
+		if err := rows.Scan(&articleID); err != nil {
+			log.Fatal(err)
+		}
+		articlesIDs = append(articlesIDs, articleID)
+	}
 
-	for _, file := range files {
-		path := filepath.Join(dir, file.Name())
-		fmt.Println(path)
-
-		f, err := os.ReadFile(path)
+	for _, articleID := range articlesIDs {
+		url := fmt.Sprintf("https://www.astralcodexten.com/api/v1/post/%d/comments?token=&all_comments=true&sort=oldest_first", articleID)
+		fmt.Println(url)
+		res, err := http.Get(url)
 		if err != nil {
-			fmt.Println("File read error:", err)
-			return
+			panic(err)
+		}
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			panic(err)
 		}
 
-		var articles []article
-		err = json.Unmarshal(f, &articles)
+		var commentFile commentsJSON
+		err = json.Unmarshal(body, &commentFile)
 		if err != nil {
-			fmt.Println("JSON unmarshal error:", err)
-			return
+			panic(err)
 		}
 
-		allArticles = append(allArticles, articles...)
-	}
+		flatComments := flattenComments(commentFile.Comments)
 
-	fmt.Println(len(allArticles))
+		err = insertComments(db, flatComments)
+		if err != nil {
+			panic(err)
+		}
 
-	for _, article := range allArticles {
-		getComments(article.ID)
 		time.Sleep(1 * time.Second)
-	}
-}
-
-func getComments(articleID int64) {
-	url := fmt.Sprintf("https://www.astralcodexten.com/api/v1/post/%d/comments?token=&all_comments=true&sort=oldest_first", articleID)
-	fmt.Println(url)
-	res, err := http.Get(url)
-	if err != nil {
-		panic(err)
-	}
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		panic(err)
-	}
-
-	filePath := fmt.Sprintf("comments/article_%d.json", articleID)
-	if err := os.WriteFile(filePath, body, 0644); err != nil {
-		fmt.Println("File write error:", err)
-		return
 	}
 }
 
@@ -365,7 +263,7 @@ func getArticles(databaseName string) {
 	// First open/create the database and the 'articles' table.
 	db, err := sql.Open("sqlite3", databaseName)
 	if err != nil {
-		log.Fatalf("Failed to open the database: %v", err)
+		log.Fatalf("Failed to open the database %s: %v", databaseName, err)
 	}
 	defer db.Close()
 
