@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime/pprof"
 	"time"
 
 	"github.com/google/subcommands"
@@ -51,7 +52,8 @@ type article struct {
 }
 
 type articlesCmd struct {
-	database string
+	database   string
+	cpuProfile bool
 }
 
 func (*articlesCmd) Name() string {
@@ -63,7 +65,7 @@ func (*articlesCmd) Synopsis() string {
 }
 
 func (*articlesCmd) Usage() string {
-	return `articles [-d/-database <database_name>]
+	return `articles [-d/-database <database_name>] -c/-cpuProfile
 	Get all the articles from ACX, write it in the database.
 `
 }
@@ -74,15 +76,29 @@ func (a *articlesCmd) SetFlags(f *flag.FlagSet) {
 	usage := "sqlite database name. The default name is acx-comments_YYYY-MM-DD.db"
 	f.StringVar(&a.database, "database", dbName, usage)
 	f.StringVar(&a.database, "d", dbName, usage)
+	f.BoolVar(&a.cpuProfile, "c", false, "write cpu profile")
+	f.BoolVar(&a.cpuProfile, "cpuProfile", false, "write cpu profile")
 }
 
 func (a *articlesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+	if a.cpuProfile {
+		a, err := os.Create("cpu.prof")
+		if err != nil {
+			panic(err)
+		}
+		if err := pprof.StartCPUProfile(a); err != nil {
+			panic(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	getArticles(a.database)
 	return subcommands.ExitSuccess
 }
 
 type commentsCmd struct {
-	database string
+	database   string
+	cpuProfile bool
 }
 
 func (*commentsCmd) Name() string {
@@ -94,7 +110,7 @@ func (*commentsCmd) Synopsis() string {
 }
 
 func (*commentsCmd) Usage() string {
-	return `comments [-d/-database <database_name>]
+	return `comments [-d/-database <database_name>] -c/-cpuProfile
 	Read the database to get all the articles, get the comments for each articles,
 	insert them in the database.
 `
@@ -106,23 +122,27 @@ func (c *commentsCmd) SetFlags(f *flag.FlagSet) {
 	usage := "sqlite database name. The default name is acx-comments_YYYY-MM-DD.db"
 	f.StringVar(&c.database, "database", dbName, usage)
 	f.StringVar(&c.database, "d", dbName, usage)
+	f.BoolVar(&c.cpuProfile, "c", false, "write cpu profile")
+	f.BoolVar(&c.cpuProfile, "cpuProfile", false, "write cpu profile")
 }
 
 func (c *commentsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+	if c.cpuProfile {
+		a, err := os.Create("cpu.prof")
+		if err != nil {
+			panic(err)
+		}
+		if err := pprof.StartCPUProfile(a); err != nil {
+			panic(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	getComments(c.database)
 	return subcommands.ExitSuccess
 }
 
 func main() {
-	// a, err := os.Create("cpu.prof")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// if err := pprof.StartCPUProfile(a); err != nil {
-	// 	panic(err)
-	// }
-	// defer pprof.StopCPUProfile()
-
 	subcommands.Register(subcommands.HelpCommand(), "")
 	subcommands.Register(subcommands.FlagsCommand(), "")
 	subcommands.Register(subcommands.CommandsCommand(), "")
@@ -160,7 +180,7 @@ func insertComments(db *sql.DB, comments []comment) error {
 
 	tx, err := db.Begin()
 	if err != nil {
-		log.Fatalf("Failed to begin transaction: %v", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
 	txStmt := tx.Stmt(stmt)
@@ -168,7 +188,8 @@ func insertComments(db *sql.DB, comments []comment) error {
 	for _, c := range comments {
 		originalJSON, err := json.Marshal(c)
 		if err != nil {
-			panic(err)
+			fmt.Fprintln(os.Stderr, err)
+			continue
 		}
 		_, err = txStmt.Exec(c.ID, c.PostID, c.UserID, c.Date, c.Body, c.Name, c.AncestorPath, c.ChildrenCount, originalJSON)
 		if err != nil {
@@ -225,29 +246,34 @@ func getComments(databaseName string) {
 	}
 
 	for _, articleID := range articlesIDs {
+		
 		url := fmt.Sprintf("https://www.astralcodexten.com/api/v1/post/%d/comments?token=&all_comments=true&sort=oldest_first", articleID)
 		fmt.Println(url)
 		res, err := http.Get(url)
 		if err != nil {
-			panic(err)
+			fmt.Fprintln(os.Stderr, err)
+			continue
 		}
 		defer res.Body.Close()
 		body, err := io.ReadAll(res.Body)
 		if err != nil {
-			panic(err)
+			fmt.Fprintln(os.Stderr, err)
+			continue
 		}
 
 		var commentFile commentsJSON
 		err = json.Unmarshal(body, &commentFile)
 		if err != nil {
-			panic(err)
+			fmt.Fprintln(os.Stderr, err)
+			continue
 		}
 
 		flatComments := flattenComments(commentFile.Comments)
 
 		err = insertComments(db, flatComments)
 		if err != nil {
-			panic(err)
+			fmt.Fprintln(os.Stderr, err)
+			continue
 		}
 
 		time.Sleep(1 * time.Second)
